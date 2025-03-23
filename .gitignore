@@ -5,7 +5,7 @@ build/
 dist/
 wheels/
 *.egg-info
-.pytest_cache
+.pytest_cache/
 # Virtual environments
 .venv
 
@@ -13,4 +13,4 @@ wheels/
 .vscode
 
 #db
-.chromadb 
+.chromadb/

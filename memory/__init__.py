@@ -1,7 +1,5 @@
 """
-Memory 模块
-
-提供记忆管理相关的工具函数和类
+yisu package
 """
 from .memory import (
     Memory,

@@ -1,0 +1,12 @@
+env:
+  PYTHONPATH: ${PWD}
+
+scripts:
+  # 使用 python 直接运行文件
+  run: "python mcp\\start.py"
+  # 开发模式
+  dev: "uvicorn mcp.start:app --reload"
+  # 测试
+  test: "pytest tests/"
+
+

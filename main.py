@@ -1,13 +1,8 @@
-"""
-主程序入口
-
-提供主要功能的访问入口
-"""
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 import chromadb
 from chromadb.api.types import Document, EmbeddingFunction
-from dbtools import *
-from memory import (
+from dbtools import *  # 使用相对导入
+from memory import (  # 使用相对导入
     Memory,
     MemoryQueryResult,
     create_memory,
@@ -15,42 +10,24 @@ from memory import (
     convert_memory_to_dict
 )
 
-def init_chromadb() -> Tuple[Optional[chromadb.Client], Optional[EmbeddingFunction]]:
+
+from mcp.server.fastmcp import FastMCP
+def init_chromadb() -> Optional[chromadb.Client]:
     """初始化ChromaDB"""
     # 创建客户端配置
     config = create_client_config("persistent", data_dir=".chromadb")
     
-    # 获取embedding function
-    embedding_fn = get_embedding_function()
-    
     # 获取ChromaDB客户端
     client = get_chroma_client(config)
     
-    if client and embedding_fn:
+    if client:
         print("ChromaDB工具初始化成功")
         print(f"使用默认embedding模型: {DEFAULT_EMBEDDING_MODEL}")
-        return client, embedding_fn
+        return client
     else:
         print("ChromaDB工具初始化失败")
-        return None, None
+        return None
 
-def demo_collection_operations(client, embedding_fn) -> None:
-    """演示集合操作"""
-    Collection_name = "test_collection" 
-    collection = get_or_create_collection(client=client, collection_name=Collection_name, embedding_function=embedding_fn)     
-    print(f"集合 {Collection_name} 创建成功")
-
-    # 插入数据
-    add_documents(collection_name=Collection_name, documents=["test document 1", "test document 2"], ids=["id1", "id2"],client=client)    
-    print("数据插入成功")
-    
-    # 查询数据
-    results = query_documents(collection_name=Collection_name, include=["metadatas", "distances"], query_texts=["test query"],client=client)
-    print("查询结果:", results)
-    
-    # 删除集合
-    delete_collection(collection_name=Collection_name,client=client)
-    print("集合删除成功")
 
 def demo_memory_operations(client, embedding_fn) -> None:
     """演示记忆操作"""
@@ -115,18 +92,63 @@ def demo_memory_operations(client, embedding_fn) -> None:
     
     print("\n=== 记忆操作演示结束 ===")
 
-def main() -> None:
-    client, embedding_fn = init_chromadb()
-    if client and embedding_fn:
-        demo_collection_operations(client, embedding_fn)
-        demo_memory_operations(client, embedding_fn)
-    else:
-        print("ChromaDB工具初始化失败，无法进行演示操作")
 
+
+
+mcp = FastMCP("yisu")
+
+
+client = init_chromadb()
+
+@mcp.tool()
+def add_memory(
+    content: str,
+    tags: List[str] = None,
+    memory_type: str = None,
+    metadata: dict = None
+) -> str:
+    """
+    添加一条新的记忆
+    
+    参数:
+        content: 记忆内容
+        tags: 标签列表
+        memory_type: 记忆类型
+        metadata: 额外的元数据
+    
+    返回:
+        str: 操作结果消息
+    """
+    # 创建记忆对象
+    memory, error = create_memory(
+        content=content,
+        tags=tags or [],
+        memory_type=memory_type,
+        metadata=metadata or {}
+    )
+    
+    if error:
+        return f"创建记忆失败: {error}"
+    
+    # 转换记忆为字典格式并存储
+    memory_dict = convert_memory_to_dict(memory)
+    success = store_memory(
+        content=memory.content,
+        metadata=memory_dict,
+        memory_id=memory.content_hash,
+        client=client
+    )
+    
+    if success:
+        return f"成功存储记忆: {content[:50]}..."
+    else:
+        return "存储记忆失败"
+
+@mcp.tool()
+def add(a: int, b: int) -> int:
+    """Add two numbers"""
+    return a + b
+def main():
+    mcp.run()
 if __name__ == "__main__":
     main()
-
-
-
-
-
