@@ -11,14 +11,15 @@ Chroma 数据库工具模块
 日期: 2025-03-23
 """
 
-from chromadb.api.types import EmbeddingFunction, Documents
-from chromadb.utils import embedding_functions  # 修改这行
-from typing import Optional, Union, Dict, Any
-from dotenv import load_dotenv
-import chromadb
-from chromadb.config import Settings
+from typing import Optional, Union, Dict, Any, List, Callable
 import ssl
 import os
+import chromadb
+from chromadb.api import Collection
+from chromadb.api.types import EmbeddingFunction, Documents
+from chromadb.utils import embedding_functions
+from dotenv import load_dotenv
+from memory import Memory
 
 # 定义常量
 DEFAULT_EMBEDDING_MODEL = "all-MiniLM-L6-v2"
@@ -29,24 +30,13 @@ DEFAULT_OPENAI_API_BASE = "https://api.openai.com/v1"
 # 默认嵌入
 # DEFAULT_EMBEDDING = embedding_functions.DefaultEmbeddingFunction()
 
-def get_embedding_function(provider: str = "sentence_transformer",
-                           model_name: Optional[str] = None,
-                           openai_api_key: Optional[str] = None,
-                           openai_api_base: Optional[str] = None,
-                           ) -> Union[EmbeddingFunction[Documents], None]:
-    """
-    获取嵌入函数，用于将文本转换为向量表示。
-    支持多种嵌入提供者，包括sentence-transformers和OpenAI。
-
-    参数:
-        provider: 嵌入提供者，可选值: "sentence_transformer", "openai"
-        model_name: 要使用的模型名称，如未提供则使用各提供者的默认值
-        openai_api_key: OpenAI API密钥 (仅OpenAI提供者需要)
-        openai_api_base: OpenAI API基础URL (可选)
-
-    返回:
-        嵌入函数或None（如果无法创建嵌入函数）
-    """
+def get_embedding_function(
+    provider: str = "sentence_transformer",
+    model_name: Optional[str] = None,
+    openai_api_key: Optional[str] = None,
+    openai_api_base: Optional[str] = None,
+) -> Optional[EmbeddingFunction]:
+    """获取嵌入函数"""
     if provider == "sentence_transformer":
         if model_name is None:
             model_name = DEFAULT_EMBEDDING_MODEL
@@ -62,7 +52,7 @@ def get_embedding_function(provider: str = "sentence_transformer",
 """获取Sentence Transformer嵌入函数（内部函数）"""
 
 
-def _get_sentence_transformer_embedding_function(model_name: str) -> Union[EmbeddingFunction[Documents], None]:
+def _get_sentence_transformer_embedding_function(model_name: str=DEFAULT_EMBEDDING_MODEL) -> Union[EmbeddingFunction[Documents], None]:
     try:
         # 尝试导入sentence_transformers，如果不存在则捕获异常
         from sentence_transformers import SentenceTransformer
@@ -321,9 +311,9 @@ def create_collection(
 def get_or_create_collection(
     collection_name: str,
     metadata: Optional[Dict] = None,
-    embedding_function: Optional[Callable] = None,
-    client=None
-) -> chromadb.Collection:
+    embedding_function: Optional[EmbeddingFunction] = None,
+    client: Optional[chromadb.Client] = None
+) -> Collection:
     """
     获取已有集合，如果不存在则创建新集合。
     
@@ -334,7 +324,7 @@ def get_or_create_collection(
         client: Chroma客户端，如未提供则自动获取
     
     返回:
-        chromadb.Collection: Chroma集合对象
+        Collection: Chroma集合对象
     """
     client = client or get_chroma_client()
     
@@ -351,7 +341,7 @@ def get_or_create_collection(
 def peek_collection(
     collection_name: str,
     limit: int = 5,
-    client=None
+    client: Optional[chromadb.Client] = None
 ) -> Dict:
     """
     查看Chroma集合中的文档示例。
@@ -362,7 +352,7 @@ def peek_collection(
         client: Chroma客户端，如未提供则自动获取
     
     返回:
-        包含样本文档的字典
+        Dict: 包含样本文档的字典
     """
     client = client or get_chroma_client()
     collection = client.get_collection(collection_name)
@@ -457,3 +447,266 @@ def delete_collection(collection_name: str, client=None) -> str:
     client = client or get_chroma_client()
     client.delete_collection(collection_name)
     return f"已成功删除集合 {collection_name}"
+
+##### 文档操作函数 #####    
+
+def add_documents(
+    collection_name: str,
+    documents: List[str],
+    metadatas: Optional[List[Dict]] = None,
+    ids: Optional[List[str]] = None,
+    client=None
+) -> str:
+    """
+    向Chroma集合添加文档。
+    
+    参数:
+        collection_name: 要添加文档的集合名称
+        documents: 要添加的文本文档列表
+        metadatas: 可选的每个文档的元数据字典列表
+        ids: 可选的文档ID列表
+        client: Chroma客户端，如未提供则自动获取
+    
+    返回:
+        表示操作成功的消息字符串
+    """
+    client = client or get_chroma_client()
+    collection = client.get_or_create_collection(collection_name)
+    
+    # 如果未提供ID，则生成顺序ID
+    if ids is None:
+        ids = [str(i) for i in range(len(documents))]
+    
+    collection.add(
+        documents=documents,
+        metadatas=metadatas,
+        ids=ids
+    )
+    
+    return f"已成功向集合 {collection_name} 添加 {len(documents)} 个文档"
+
+def query_documents(
+    collection_name: str,
+    query_texts: List[str],
+    n_results: int = 5,
+    where: Optional[Dict] = None,
+    where_document: Optional[Dict] = None,
+    include: Optional[List[str]] = None,
+    client=None
+) -> Dict:
+    """
+    使用高级过滤从Chroma集合查询文档。
+    
+    参数:
+        collection_name: 要查询的集合名称
+        query_texts: 要搜索的查询文本列表
+        n_results: 每个查询返回的结果数量
+        where: 可选的使用Chroma查询操作符的元数据过滤器
+               示例:
+               - 简单相等: {"metadata_field": "value"}
+               - 比较: {"metadata_field": {"$gt": 5}}
+               - 逻辑与: {"$and": [{"field1": {"$eq": "value1"}}, {"field2": {"$gt": 5}}]}
+               - 逻辑或: {"$or": [{"field1": {"$eq": "value1"}}, {"field1": {"$eq": "value2"}}]}
+        where_document: 可选的文档内容过滤器
+        include: 可选的响应中包含什么的列表。可以包含以下任何内容:
+                ["documents", "embeddings", "metadatas", "distances"]
+        client: Chroma客户端，如未提供则自动获取
+    
+    返回:
+        包含查询结果的字典
+    """
+    client = client or get_chroma_client()
+    collection = client.get_collection(collection_name)
+    
+    return collection.query(
+        query_texts=query_texts,
+        n_results=n_results,
+        where=where,
+        where_document=where_document,
+        include=include
+    )
+
+def get_documents(
+    collection_name: str,
+    ids: Optional[List[str]] = None,
+    where: Optional[Dict] = None,
+    where_document: Optional[Dict] = None,
+    include: Optional[List[str]] = None,
+    limit: Optional[int] = None,
+    offset: Optional[int] = None,
+    client=None
+) -> Dict:
+    """
+    从Chroma集合获取文档，可选过滤。
+    
+    参数:
+        collection_name: 要获取文档的集合名称
+        ids: 可选的要检索的文档ID列表
+        where: 可选的使用Chroma查询操作符的元数据过滤器
+        where_document: 可选的文档内容过滤器
+        include: 可选的响应中包含什么的列表。可以包含以下任何内容:
+                ["documents", "embeddings", "metadatas"]
+        limit: 可选的返回文档的最大数量
+        offset: 可选的在返回结果前跳过的文档数量
+        client: Chroma客户端，如未提供则自动获取
+    
+    返回:
+        包含匹配文档、其ID和请求包含的字典
+    """
+    client = client or get_chroma_client()
+    collection = client.get_collection(collection_name)
+    
+    return collection.get(
+        ids=ids,
+        where=where,
+        where_document=where_document,
+        include=include,
+        limit=limit,
+        offset=offset
+    )
+
+##### 记忆操作专用函数 #####
+
+def store_memory(
+    content: str,
+    metadata: Dict[str, Any],
+    memory_id: str,
+    client=None,
+    embedding_function: Optional[Callable] = None
+) -> bool:
+    """
+    将单个记忆存储到memory集合中。
+    
+    此函数是add_documents的简化版本，专为存储记忆设计。
+    它自动创建memory集合（如果不存在），并处理单个记忆的存储。
+    
+    参数:
+        content: 记忆的文本内容
+        metadata: 记忆的元数据字典（应包含从Memory对象转换的数据）
+        memory_id: 记忆的唯一标识符
+        client: Chroma客户端，如未提供则自动获取
+        embedding_function: 可选的嵌入函数，如未提供则尝试创建一个
+        
+    返回:
+        bool: 操作是否成功
+    """
+    try:
+        client = client or get_chroma_client()
+        
+        # 如果未提供嵌入函数，尝试创建一个
+        if embedding_function is None:
+            embedding_function = get_embedding_function()
+            
+        # 确保memory集合存在
+        collection = get_or_create_collection(
+            "memory", 
+            client=client,
+            embedding_function=embedding_function
+        )
+        
+        # 预处理元数据，确保所有值都是基本类型
+        processed_metadata = {}
+        for key, value in metadata.items():
+            # 如果值为None，则跳过这个键
+            if value is None:
+                continue
+            # 将非基本类型转换为字符串
+            if not isinstance(value, (str, int, float, bool)):
+                processed_metadata[key] = str(value)
+            else:
+                processed_metadata[key] = value
+        
+        # 存储记忆
+        collection.add(
+            documents=[content],
+            metadatas=[processed_metadata],
+            ids=[memory_id]
+        )
+        return True
+    except Exception as e:
+        print(f"存储记忆时出错: {str(e)}")
+        return False
+
+def retrieve_memory(
+    query_text: str,
+    n_results: int = 5,
+    metadata_filter: Optional[Dict] = None,
+    include_content: bool = True,
+    include_metadata: bool = True,
+    include_distances: bool = True,
+    client=None,
+    embedding_function: Optional[Callable] = None
+) -> Dict[str, Any]:
+    """
+    从memory集合中检索与查询相关的记忆。
+    
+    此函数是query_documents的简化版本，专为检索记忆设计。
+    它自动处理memory集合，并提供更简洁的参数接口。
+    
+    参数:
+        query_text: 用于搜索的查询文本
+        n_results: 要返回的最相关结果数量
+        metadata_filter: 可选的元数据过滤条件，使用Chroma查询语法
+        include_content: 是否在结果中包含记忆内容
+        include_metadata: 是否在结果中包含记忆元数据
+        include_distances: 是否在结果中包含相似度距离
+        client: Chroma客户端，如未提供则自动获取
+        embedding_function: 可选的嵌入函数，如未提供则尝试创建一个
+        
+    返回:
+        Dict[str, Any]: 包含检索结果的字典，格式与query_documents类似但更加精简
+        
+    示例:
+        >>> results = retrieve_memory("重要会议")
+        >>> for i, content in enumerate(results["documents"][0]):
+        ...     print(f"记忆 {i+1}: {content[:50]}... (相关性: {1-results['distances'][0][i]:.2f})")
+    """
+    try:
+        client = client or get_chroma_client()
+        
+        # 如果未提供嵌入函数，尝试创建一个
+        if embedding_function is None:
+            embedding_function = get_embedding_function()
+        
+        # 确保集合存在
+        try:
+            collection = client.get_collection(
+                "memory",
+                embedding_function=embedding_function
+            )
+        except ValueError:
+            # 如果集合不存在，返回空结果
+            empty_result = {
+                "ids": [[]], 
+                "documents": [[]] if include_content else None,
+                "metadatas": [[]] if include_metadata else None,
+                "distances": [[]] if include_distances else None
+            }
+            return empty_result
+            
+        # 准备查询参数
+        include_params = []
+        if include_content:
+            include_params.append("documents")
+        if include_metadata:
+            include_params.append("metadatas")
+        if include_distances:
+            include_params.append("distances")
+            
+        # 执行查询
+        return collection.query(
+            query_texts=[query_text],
+            n_results=n_results,
+            where=metadata_filter,
+            include=include_params
+        )
+    except Exception as e:
+        print(f"检索记忆时出错: {str(e)}")
+        # 返回空结果
+        empty_result = {
+            "ids": [[]], 
+            "documents": [[]] if include_content else None,
+            "metadatas": [[]] if include_metadata else None,
+            "distances": [[]] if include_distances else None
+        }
+        return empty_result
