@@ -566,6 +566,147 @@ def get_documents(
         offset=offset
     )
 
+##### 通用文档操作函数 #####
+def add_document_to_collection(
+    collection_name: str,
+    document: str,
+    metadata: Dict[str, Any],
+    doc_id: str,
+    client=None,
+    embedding_function: Optional[Callable] = None
+) -> bool:
+    """
+    将单个文档添加到集合中，支持自动创建集合。
+    
+    参数:
+        collection_name: 集合名称
+        document: 文档内容
+        metadata: 与文档关联的元数据
+        doc_id: 文档唯一ID
+        client: Chroma客户端，如未提供则自动获取
+        embedding_function: 可选的嵌入函数，用于向量化文档
+        
+    返回:
+        bool: 操作是否成功
+    """
+    try:
+        client = client or get_chroma_client()
+        
+        # 如果未提供嵌入函数，尝试创建一个
+        if embedding_function is None:
+            embedding_function = get_embedding_function()
+            
+        # 确保集合存在
+        collection = get_or_create_collection(
+            collection_name, 
+            client=client,
+            embedding_function=embedding_function
+        )
+        
+        # 预处理元数据，确保所有值都是基本类型
+        processed_metadata = {}
+        for key, value in metadata.items():
+            # 如果值为None，则跳过这个键
+            if value is None:
+                continue
+            # 将非基本类型转换为字符串
+            if not isinstance(value, (str, int, float, bool)):
+                processed_metadata[key] = str(value)
+            else:
+                processed_metadata[key] = value
+        
+        # 存储文档
+        collection.add(
+            documents=[document],
+            metadatas=[processed_metadata],
+            ids=[doc_id]
+        )
+        return True
+    except Exception as e:
+        print(f"添加文档时出错: {str(e)}")
+        return False
+
+def query_collection(
+    collection_name: str,
+    query_text: str,
+    n_results: int = 5,
+    metadata_filter: Optional[Dict] = None,
+    include_params: List[str] = None,
+    client=None,
+    embedding_function: Optional[Callable] = None
+) -> List[Dict[str, Any]]:
+    """
+    从指定集合中检索与查询相关的文档。
+    
+    参数:
+        collection_name: 集合名称
+        query_text: 查询文本
+        n_results: 返回结果数量上限
+        metadata_filter: 可选的元数据过滤条件
+        include_params: 响应中要包含的内容，如["documents", "metadatas", "distances"]
+        client: Chroma客户端，如未提供则自动获取
+        embedding_function: 可选的嵌入函数，用于向量化查询文本
+        
+    返回:
+        List[Dict[str, Any]]: 查询结果列表，每个结果为包含ID、文档内容和元数据的字典
+    """
+    try:
+        client = client or get_chroma_client()
+        
+        # 如果未提供嵌入函数，尝试创建一个
+        if embedding_function is None:
+            embedding_function = get_embedding_function()
+        
+        # 默认包含参数
+        if include_params is None:
+            include_params = ["documents", "metadatas", "distances"]
+        
+        # 尝试获取集合
+        try:
+            collection = client.get_collection(
+                collection_name,
+                embedding_function=embedding_function
+            )
+        except ValueError:
+            # 如果集合不存在，返回空列表
+            return []
+            
+        # 执行查询
+        raw_results = collection.query(
+            query_texts=[query_text],
+            n_results=n_results,
+            where=metadata_filter,
+            include=include_params
+        )
+        
+        # 如果没有结果，返回空列表
+        if not raw_results["ids"][0]:
+            return []
+        
+        # 将原始结果转换为更易使用的格式
+        results = []
+        for i, doc_id in enumerate(raw_results["ids"][0]):
+            result = {"id": doc_id}
+            
+            # 添加内容
+            if "documents" in raw_results:
+                result["content"] = raw_results["documents"][0][i]
+            
+            # 添加元数据
+            if "metadatas" in raw_results:
+                result.update(raw_results["metadatas"][0][i])
+            
+            # 计算相关性分数 (将距离转换为相关性)
+            if "distances" in raw_results:
+                result["relevance"] = 1.0 - raw_results["distances"][0][i]
+            
+            results.append(result)
+        
+        return results
+    except Exception as e:
+        print(f"查询集合时出错: {str(e)}")
+        return []
+
 ##### 记忆操作专用函数 #####
 
 def store_memory(

@@ -19,8 +19,7 @@ from .memory import (
 )
 from dbtools.chroma_utils import (
     get_chroma_client, get_embedding_function,
-    store_memory as _store_memory,
-    retrieve_memory as _retrieve_raw_memory
+    add_document_to_collection, query_collection
 )
 
 # 类型别名定义，提高代码可读性
@@ -28,6 +27,9 @@ MemoryID = str
 MemoryList = List[Memory]
 MemoryQueryResults = List[MemoryQueryResult]
 EmbeddingFunction = Callable[[List[str]], List[List[float]]]
+
+# 常量定义
+MEMORY_COLLECTION = "memory"
 
 
 def save_memory(
@@ -73,11 +75,12 @@ def save_memory(
     # 步骤3: 转换为存储格式
     memory_dict = convert_memory_to_dict(memory_obj)
     
-    # 步骤4: 存储记忆
-    success = _store_memory(
-        content=content,
+    # 步骤4: 存储记忆 - 使用通用函数
+    success = add_document_to_collection(
+        collection_name=MEMORY_COLLECTION,
+        document=content,
         metadata=memory_dict,  # 包含了所有元数据
-        memory_id=actual_id,
+        doc_id=actual_id,
         embedding_function=embedding_function
     )
     
@@ -122,14 +125,13 @@ def search_memories(
         date_to=date_to
     )
     
-    # 获取原始记忆数据
-    raw_results = _retrieve_raw_memory(
+    # 获取原始记忆数据 - 使用通用函数
+    raw_results = query_collection(
+        collection_name=MEMORY_COLLECTION,
         query_text=query,
         n_results=limit,
         metadata_filter=combined_filter,
-        include_content=True,
-        include_metadata=True,
-        include_distances=True,
+        include_params=["documents", "metadatas", "distances"],
         embedding_function=embedding_function
     )
     
@@ -154,7 +156,7 @@ def get_memory_by_id(memory_id: str) -> Optional[Memory]:
     client = get_chroma_client()
     try:
         # 直接通过ID查询
-        result = client.get_collection("memory").get(
+        result = client.get_collection(MEMORY_COLLECTION).get(
             ids=[memory_id],
             include=["documents", "metadatas"]
         )
@@ -197,10 +199,12 @@ def batch_save_memories(memories: List[Memory]) -> Tuple[List[str], List[str]]:
         memory_id = f"mem_{uuid.uuid4().hex}"
         memory_dict = convert_memory_to_dict(memory)
         
-        success = _store_memory(
-            content=memory.content,
+        # 使用通用函数
+        success = add_document_to_collection(
+            collection_name=MEMORY_COLLECTION,
+            document=memory.content,
             metadata=memory_dict,
-            memory_id=memory_id
+            doc_id=memory_id
         )
         
         if success:
@@ -223,7 +227,7 @@ def delete_memory(memory_id: str) -> bool:
     """
     try:
         client = get_chroma_client()
-        collection = client.get_collection("memory")
+        collection = client.get_collection(MEMORY_COLLECTION)
         collection.delete(ids=[memory_id])
         return True
     except Exception as e:
@@ -253,7 +257,7 @@ def delete_memories_by_filter(
     """
     try:
         client = get_chroma_client()
-        collection = client.get_collection("memory")
+        collection = client.get_collection(MEMORY_COLLECTION)
         
         # 构建过滤条件
         combined_filter = _build_metadata_filter(
@@ -308,7 +312,7 @@ def count_memories(
     """
     try:
         client = get_chroma_client()
-        collection = client.get_collection("memory")
+        collection = client.get_collection(MEMORY_COLLECTION)
         
         # 构建过滤条件
         combined_filter = _build_metadata_filter(
@@ -407,7 +411,7 @@ def _convert_raw_results_to_query_results(raw_results: List[Dict]) -> MemoryQuer
     将原始检索结果转换为MemoryQueryResult对象列表。
     
     参数:
-        raw_results: 从retrieve_memory返回的原始结果
+        raw_results: 从query_collection返回的原始结果
         
     返回:
         List[MemoryQueryResult]: 记忆查询结果列表
