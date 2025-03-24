@@ -49,7 +49,7 @@ def parse_arguments() -> argparse.Namespace:
     db_group.add_argument('--data-dir', type=str, default="./.chromadb", 
                       help='ChromaDB 数据目录 (persistent 模式)')
     db_group.add_argument('--host', type=str, help='ChromaDB 服务器地址 (http 模式)')
-    db_group.add_argument('--port', type=str, help='ChromaDB 服务器端口 (http 模式)')
+    db_group.add_argument('--db-port', type=str, help='ChromaDB 服务器端口 (http 模式)')
     
     # 嵌入模型参数
     emb_group = parser.add_argument_group('嵌入模型配置')
@@ -79,7 +79,7 @@ def init_chromadb(args: argparse.Namespace) -> Optional[Tuple[chromadb.Client, E
             client_type=args.client_type,
             data_dir=args.data_dir if args.client_type == 'persistent' else None,
             host=args.host if args.client_type == 'http' else None,
-            port=args.port if args.client_type == 'http' else None
+            port=args.db_port if args.client_type == 'http' else None
         )
         
         # 获取 ChromaDB 客户端
