@@ -18,6 +18,7 @@ import chromadb
 from chromadb.api import Collection
 from chromadb.api.types import EmbeddingFunction, Documents
 from chromadb.utils import embedding_functions
+from chromadb.config import Settings
 from dotenv import load_dotenv
 from memory import Memory
 
@@ -636,7 +637,7 @@ def retrieve_memory(
     include_distances: bool = True,
     client=None,
     embedding_function: Optional[Callable] = None
-) -> Dict[str, Any]:
+) -> List[Dict[str, Any]]:
     """
     从memory集合中检索与查询相关的记忆。
     
@@ -654,12 +655,12 @@ def retrieve_memory(
         embedding_function: 可选的嵌入函数，如未提供则尝试创建一个
         
     返回:
-        Dict[str, Any]: 包含检索结果的字典，格式与query_documents类似但更加精简
+        List[Dict[str, Any]]: 包含原始检索结果的字典列表
         
     示例:
         >>> results = retrieve_memory("重要会议")
-        >>> for i, content in enumerate(results["documents"][0]):
-        ...     print(f"记忆 {i+1}: {content[:50]}... (相关性: {1-results['distances'][0][i]:.2f})")
+        >>> for result in results:
+        ...     print(f"记忆: {result['content'][:50]}... (相关性: {result['relevance']:.2f})")
     """
     try:
         client = client or get_chroma_client()
@@ -675,14 +676,8 @@ def retrieve_memory(
                 embedding_function=embedding_function
             )
         except ValueError:
-            # 如果集合不存在，返回空结果
-            empty_result = {
-                "ids": [[]], 
-                "documents": [[]] if include_content else None,
-                "metadatas": [[]] if include_metadata else None,
-                "distances": [[]] if include_distances else None
-            }
-            return empty_result
+            # 如果集合不存在，返回空列表
+            return []
             
         # 准备查询参数
         include_params = []
@@ -694,19 +689,37 @@ def retrieve_memory(
             include_params.append("distances")
             
         # 执行查询
-        return collection.query(
+        raw_results = collection.query(
             query_texts=[query_text],
             n_results=n_results,
             where=metadata_filter,
             include=include_params
         )
+        
+        # 如果没有结果，返回空列表
+        if not raw_results["ids"][0]:
+            return []
+        
+        # 将原始结果转换为更易使用的格式
+        results = []
+        for i, doc_id in enumerate(raw_results["ids"][0]):
+            result = {"id": doc_id}
+            
+            # 添加内容
+            if include_content and "documents" in raw_results:
+                result["content"] = raw_results["documents"][0][i]
+            
+            # 添加元数据
+            if include_metadata and "metadatas" in raw_results:
+                result.update(raw_results["metadatas"][0][i])
+            
+            # 计算相关性分数 (将距离转换为相关性)
+            if include_distances and "distances" in raw_results:
+                result["relevance"] = 1.0 - raw_results["distances"][0][i]
+            
+            results.append(result)
+        
+        return results
     except Exception as e:
         print(f"检索记忆时出错: {str(e)}")
-        # 返回空结果
-        empty_result = {
-            "ids": [[]], 
-            "documents": [[]] if include_content else None,
-            "metadatas": [[]] if include_metadata else None,
-            "distances": [[]] if include_distances else None
-        }
-        return empty_result
+        return []
