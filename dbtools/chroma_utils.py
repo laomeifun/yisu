@@ -20,7 +20,8 @@ from chromadb.api.types import EmbeddingFunction, Documents
 from chromadb.utils import embedding_functions
 from chromadb.config import Settings
 from dotenv import load_dotenv
-from memory import Memory
+# 移除 Memory 的导入，防止循环依赖
+# from memory import Memory
 
 # 定义常量
 DEFAULT_EMBEDDING_MODEL = "all-MiniLM-L6-v2"

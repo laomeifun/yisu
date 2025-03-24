@@ -17,10 +17,12 @@ from .memory import (
     convert_memory_to_dict, create_memory_from_dict,
     compute_content_hash
 )
-from dbtools.chroma_utils import (
-    get_chroma_client, get_embedding_function,
-    add_document_to_collection, query_collection
-)
+
+# 移除顶层导入，防止循环依赖
+# from dbtools.chroma_utils import (
+#     get_chroma_client, get_embedding_function,
+#     add_document_to_collection, query_collection
+# )
 
 # 类型别名定义，提高代码可读性
 MemoryID = str
@@ -30,6 +32,12 @@ EmbeddingFunction = Callable[[List[str]], List[List[float]]]
 
 # 常量定义
 MEMORY_COLLECTION = "memory"
+
+
+def _get_chroma_utils():
+    """延迟导入 chroma_utils 模块，避免循环导入"""
+    from dbtools import chroma_utils
+    return chroma_utils
 
 
 def save_memory(
@@ -75,8 +83,11 @@ def save_memory(
     # 步骤3: 转换为存储格式
     memory_dict = convert_memory_to_dict(memory_obj)
     
+    # 延迟导入，避免循环依赖
+    chroma_utils = _get_chroma_utils()
+    
     # 步骤4: 存储记忆 - 使用通用函数
-    success = add_document_to_collection(
+    success = chroma_utils.add_document_to_collection(
         collection_name=MEMORY_COLLECTION,
         document=content,
         metadata=memory_dict,  # 包含了所有元数据
@@ -125,8 +136,11 @@ def search_memories(
         date_to=date_to
     )
     
+    # 延迟导入，避免循环依赖
+    chroma_utils = _get_chroma_utils()
+    
     # 获取原始记忆数据 - 使用通用函数
-    raw_results = query_collection(
+    raw_results = chroma_utils.query_collection(
         collection_name=MEMORY_COLLECTION,
         query_text=query,
         n_results=limit,
@@ -153,7 +167,10 @@ def get_memory_by_id(memory_id: str) -> Optional[Memory]:
     返回:
         Optional[Memory]: 如果找到则返回记忆对象，否则返回None
     """
-    client = get_chroma_client()
+    # 延迟导入，避免循环依赖
+    chroma_utils = _get_chroma_utils()
+    
+    client = chroma_utils.get_chroma_client()
     try:
         # 直接通过ID查询
         result = client.get_collection(MEMORY_COLLECTION).get(
@@ -195,12 +212,15 @@ def batch_save_memories(memories: List[Memory]) -> Tuple[List[str], List[str]]:
     success_ids = []
     failed_ids = []
     
+    # 延迟导入，避免循环依赖
+    chroma_utils = _get_chroma_utils()
+    
     for memory in memories:
         memory_id = f"mem_{uuid.uuid4().hex}"
         memory_dict = convert_memory_to_dict(memory)
         
         # 使用通用函数
-        success = add_document_to_collection(
+        success = chroma_utils.add_document_to_collection(
             collection_name=MEMORY_COLLECTION,
             document=memory.content,
             metadata=memory_dict,
@@ -226,7 +246,10 @@ def delete_memory(memory_id: str) -> bool:
         bool: 操作是否成功
     """
     try:
-        client = get_chroma_client()
+        # 延迟导入，避免循环依赖
+        chroma_utils = _get_chroma_utils()
+        
+        client = chroma_utils.get_chroma_client()
         collection = client.get_collection(MEMORY_COLLECTION)
         collection.delete(ids=[memory_id])
         return True
@@ -256,7 +279,10 @@ def delete_memories_by_filter(
         int: 删除的记忆数量，如遇错误则返回-1
     """
     try:
-        client = get_chroma_client()
+        # 延迟导入，避免循环依赖
+        chroma_utils = _get_chroma_utils()
+        
+        client = chroma_utils.get_chroma_client()
         collection = client.get_collection(MEMORY_COLLECTION)
         
         # 构建过滤条件
@@ -311,7 +337,10 @@ def count_memories(
         int: 匹配的记忆数量，出错时返回-1
     """
     try:
-        client = get_chroma_client()
+        # 延迟导入，避免循环依赖
+        chroma_utils = _get_chroma_utils()
+        
+        client = chroma_utils.get_chroma_client()
         collection = client.get_collection(MEMORY_COLLECTION)
         
         # 构建过滤条件
