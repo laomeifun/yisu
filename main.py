@@ -15,11 +15,12 @@ from mcp.server.fastmcp import FastMCP
 def init_chromadb() -> Optional[chromadb.Client]:
     """初始化ChromaDB"""
     # 创建客户端配置
-    config = create_client_config("persistent", data_dir=".chromadb")
+    config= create_client_config("persistent", data_dir=".chromadb")
     
     # 获取ChromaDB客户端
     client = get_chroma_client(config)
-    
+    # 创建嵌入函数
+    embedding_fn = create_embedding_function()
     if client:
         print("ChromaDB工具初始化成功")
         print(f"使用默认embedding模型: {DEFAULT_EMBEDDING_MODEL}")
@@ -148,7 +149,15 @@ def add_memory(
 def add(a: int, b: int) -> int:
     """Add two numbers"""
     return a + b
+
+
+# Add a dynamic greeting resource
+@mcp.resource("greeting://{name}")
+def get_greeting(name: str) -> str:
+    """Get a personalized greeting"""
+    return f"Hello, {name}!"
+    
 def main():
-    mcp.run()
+    mcp.run(transport="stdio")
 if __name__ == "__main__":
     main()
