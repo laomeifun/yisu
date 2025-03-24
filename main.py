@@ -35,7 +35,7 @@ from mcp.server.fastmcp import FastMCP
 def init_chromadb() -> Optional[Tuple[chromadb.Client, EmbeddingFunction]]:
     """初始化ChromaDB"""
     # 创建客户端配置
-    config= create_client_config("persistent", data_dir=".chromadb")
+    config= create_client_config("persistent", data_dir="D:\data\.chromadb")
     
     # 获取ChromaDB客户端
     client = get_chroma_client(config)
@@ -67,16 +67,18 @@ def init_collection(client: chromadb.Client, collection_name: str = MEMORY_COLLE
         print(f"集合 '{collection_name}' 初始化失败")
         return None
 
-
-
-
-
-
-
 mcp = FastMCP("yisu")
 
-
-client  = init_chromadb()
+# 正确解包初始化返回的元组
+chroma_result = init_chromadb()
+if chroma_result:
+    chroma_client, embedding_fn = chroma_result
+    # 初始化集合
+    collection = init_collection(chroma_client, MEMORY_COLLECTION_NAME, embedding_fn)
+else:
+    chroma_client = None
+    collection = None
+    print("ChromaDB初始化失败，无法继续操作")
 
 @mcp.tool()
 def add_memory(
@@ -97,6 +99,9 @@ def add_memory(
     返回:
         str: 操作结果消息
     """
+    if not chroma_client:
+        return "ChromaDB客户端未初始化，无法存储记忆"
+        
     # 创建记忆对象
     memory, error = create_memory(
         content=content,
@@ -114,7 +119,7 @@ def add_memory(
         content=memory.content,
         metadata=memory_dict,
         memory_id=memory.content_hash,
-        client=client
+        client=chroma_client
     )
     
     if success:
@@ -138,10 +143,13 @@ def query_memory(
     返回:
         List[MemoryQueryResult]: 查询结果列表
     """
-    # 执行查询
+    if not chroma_client:
+        return "ChromaDB客户端未初始化，无法查询记忆"
+        
+    # 执行查询（修改参数名称：query -> query_text）
     results = retrieve_memory(
-        client=client,
-        query=query,
+        client=chroma_client,
+        query_text=query,  # 修改为正确的参数名
         n_results=n_results
     )
     
